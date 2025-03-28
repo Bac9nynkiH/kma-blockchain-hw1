@@ -1,0 +1,3 @@
+service : {
+    "get_weather_data": (text) -> (text);
+}
