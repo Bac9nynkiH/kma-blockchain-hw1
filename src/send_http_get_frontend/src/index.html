@@ -34,6 +34,59 @@
         font-size: 16px;
         cursor: pointer;
       }
+      .pinned-temperatures {
+        margin-top: 30px;
+      }
+      .pinned-temperature {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background-color: #f9f9f9;
+      }
+      .pinned-temperature .temperature {
+        font-size: 18px;
+        font-weight: bold;
+      }
+      .pinned-temperature .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .pinned-temperature button {
+        padding: 5px 10px;
+        font-size: 14px;
+      }
+      .pin-button {
+        margin-left: 10px;
+      }
+      .error {
+        color: red;
+        margin-top: 10px;
+      }
+      .loading-spinner {
+        display: none;
+        width: 20px;
+        height: 20px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-left: 10px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .loading .loading-spinner {
+        display: inline-block;
+      }
+      .loading .refresh-btn {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -41,9 +94,14 @@
     <div class="input-group">
       <input type="text" id="cityInput" placeholder="Enter city name (e.g., Kyiv)" />
       <button id="getWeather">Get Temperature</button>
+      <button id="pinTemperature" class="pin-button" disabled>Pin Temperature</button>
     </div>
     <div class="weather-container">
       <pre id="weatherData" class="weather-data"></pre>
+    </div>
+    <div class="pinned-temperatures">
+      <h2>Pinned Temperatures</h2>
+      <div id="pinnedList"></div>
     </div>
     <script type="module" src="index.js"></script>
   </body>
