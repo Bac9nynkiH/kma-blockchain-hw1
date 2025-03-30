@@ -1,5 +1,3 @@
-//1. IMPORT IC MANAGEMENT CANISTER
-//This includes all methods and types needed
 use ic_cdk::api::management_canister::http_request::{
     http_request, CanisterHttpRequestArgument, HttpHeader, HttpMethod, HttpResponse, TransformArgs,
     TransformContext,
@@ -8,18 +6,15 @@ use ic_cdk::api::management_canister::http_request::{
 use ic_cdk_macros::{self, query, update};
 use serde::{Serialize, Deserialize};
 use serde_json::{self, Value};
+use candid::CandidType;
 
-// This struct is used to store the location coordinates
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, CandidType)]
 struct Location {
     latitude: f64,
     longitude: f64,
 }
 
-//Update method using the HTTPS outcalls feature
-#[ic_cdk::update]
-async fn get_weather_data(city: String) -> String {
-    // First, get coordinates for the city using OpenStreetMap Nominatim API
+async fn get_city_coordinates(city: &str) -> Result<(f64, f64), String> {
     let geocoding_url = format!(
         "https://nominatim.openstreetmap.org/search?q={}&format=json&limit=1",
         city
@@ -38,7 +33,7 @@ async fn get_weather_data(city: String) -> String {
         body: None,
         max_response_bytes: None,
         transform: None,
-        headers: geocoding_headers.clone(),
+        headers: geocoding_headers,
     };
 
     match http_request(geocoding_request).await {
@@ -46,7 +41,6 @@ async fn get_weather_data(city: String) -> String {
             let str_body = String::from_utf8(response.body)
                 .expect("Transformed response is not UTF-8 encoded.");
             
-            // Parse the geocoding response
             let json: Value = serde_json::from_str(&str_body)
                 .expect("Failed to parse JSON response");
             
@@ -56,53 +50,108 @@ async fn get_weather_data(city: String) -> String {
                         first_result["lat"].as_str().and_then(|s| s.parse::<f64>().ok()),
                         first_result["lon"].as_str().and_then(|s| s.parse::<f64>().ok()),
                     ) {
-                        // Now get weather data for these coordinates
-                        let weather_url = format!(
-                            "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m&timezone=auto",
-                            lat, lon
-                        );
-
-                        let weather_request = CanisterHttpRequestArgument {
-                            url: weather_url,
-                            method: HttpMethod::GET,
-                            body: None,
-                            max_response_bytes: None,
-                            transform: None,
-                            headers: geocoding_headers,
-                        };
-
-                        match http_request(weather_request).await {
-                            Ok((response,)) => {
-                                let str_body = String::from_utf8(response.body)
-                                    .expect("Transformed response is not UTF-8 encoded.");
-                                
-                                // Parse the weather response and extract only temperature
-                                let json: Value = serde_json::from_str(&str_body)
-                                    .expect("Failed to parse JSON response");
-                                
-                                if let Some(temp) = json["current"]["temperature_2m"].as_f64() {
-                                    format!("Temperature in {}: {:.1}°C", city, temp)
-                                } else {
-                                    "Failed to get temperature data".to_string()
-                                }
-                            }
-                            Err((r, m)) => format!("Weather API error: {:?}, {}", r, m),
-                        }
+                        Ok((lat, lon))
                     } else {
-                        "Failed to parse coordinates".to_string()
+                        Err("Failed to parse coordinates".to_string())
                     }
                 } else {
-                    "No results found for this city".to_string()
+                    Err("No results found for this city".to_string())
                 }
             } else {
-                "Failed to parse geocoding response".to_string()
+                Err("Failed to parse geocoding response".to_string())
             }
         }
-        Err((r, m)) => format!("Geocoding API error: {:?}, {}", r, m),
+        Err((r, m)) => Err(format!("Geocoding API error: {:?}, {}", r, m)),
     }
 }
 
-// Strips all data that is not needed from the original response.
+async fn get_weather_data_for_coordinates(lat: f64, lon: f64) -> Result<Value, String> {
+    let weather_url = format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m&timezone=auto",
+        lat, lon
+    );
+
+    let weather_headers = vec![
+        HttpHeader {
+            name: "User-Agent".to_string(),
+            value: "weather_canister".to_string(),
+        },
+    ];
+
+    let weather_request = CanisterHttpRequestArgument {
+        url: weather_url,
+        method: HttpMethod::GET,
+        body: None,
+        max_response_bytes: None,
+        transform: None,
+        headers: weather_headers,
+    };
+
+    match http_request(weather_request).await {
+        Ok((response,)) => {
+            let str_body = String::from_utf8(response.body)
+                .expect("Transformed response is not UTF-8 encoded.");
+            
+            Ok(serde_json::from_str(&str_body)
+                .expect("Failed to parse JSON response"))
+        }
+        Err((r, m)) => Err(format!("Weather API error: {:?}, {}", r, m)),
+    }
+}
+
+#[ic_cdk::update]
+async fn get_weather_data(city: String) -> String {
+    match get_city_coordinates(&city).await {
+        Ok((lat, lon)) => {
+            match get_weather_data_for_coordinates(lat, lon).await {
+                Ok(json) => {
+                    if let Some(temp) = json["current"]["temperature_2m"].as_f64() {
+                        format!("Temperature in {}: {:.1}°C", city, temp)
+                    } else {
+                        "Failed to get temperature data".to_string()
+                    }
+                }
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    }
+}
+
+#[ic_cdk::update]
+async fn get_humidity(city: String) -> String {
+    match get_city_coordinates(&city).await {
+        Ok((lat, lon)) => {
+            match get_weather_data_for_coordinates(lat, lon).await {
+                Ok(json) => {
+                    if let Some(humidity) = json["current"]["relative_humidity_2m"].as_f64() {
+                        format!("Humidity in {}: {:.1}%", city, humidity)
+                    } else {
+                        "Failed to get humidity data".to_string()
+                    }
+                }
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    }
+}
+
+#[ic_cdk::update]
+async fn get_temperature_by_coordinates(location: Location) -> String {
+    match get_weather_data_for_coordinates(location.latitude, location.longitude).await {
+        Ok(json) => {
+            if let Some(temp) = json["current"]["temperature_2m"].as_f64() {
+                format!("Temperature at ({}, {}): {:.1}°C", 
+                    location.latitude, location.longitude, temp)
+            } else {
+                "Failed to get temperature data".to_string()
+            }
+        }
+        Err(e) => e,
+    }
+}
+
 #[query]
 fn transform(raw: TransformArgs) -> HttpResponse {
     let headers = vec![
