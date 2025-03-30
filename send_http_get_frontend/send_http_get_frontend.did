@@ -1,0 +1,4 @@
+service : {
+    "get_html": () -> (text) query;
+    "greet": (text) -> (text);
+} 
